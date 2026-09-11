@@ -1,0 +1,37 @@
+name: Update city enrichment data
+
+on:
+  schedule:
+    # 매일 UTC 03:00 (한국시간 낮 12시)에 실행
+    - cron: "0 3 * * *"
+  workflow_dispatch: {} # Actions 탭에서 수동 실행 버튼도 쓸 수 있게
+
+permissions:
+  contents: write # data/enrichment.json 커밋을 위해 필요
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run enrichment update script
+        run: node scripts/update-enrichment.mjs
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/enrichment.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: update city enrichment data [skip ci]"
+            git push
+          fi
