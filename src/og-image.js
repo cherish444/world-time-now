@@ -19,7 +19,7 @@ export function renderCityOgImage({ city, timeText, dateText, offsetLabel }) {
       justify-content: center;
       width: 1200px;
       height: 630px;
-      background: linear-gradient(135deg, #111111 0%, #1c1c2e 100%);
+      background: #14141f;
       color: #ffffff;
       font-family: sans-serif;
       position: relative;
@@ -73,7 +73,7 @@ export function renderHomeOgImage(siteName, tagline) {
       justify-content:center;
       width:1200px;
       height:630px;
-      background: linear-gradient(135deg, #111111 0%, #1c1c2e 100%);
+      background: #14141f;
       color:#ffffff;
       font-family: sans-serif;
       position: relative;
