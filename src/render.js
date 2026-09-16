@@ -351,6 +351,8 @@ function enrichmentSectionHtml(langCode, lang, enrichment) {
 
   return parts.join("\n");
 }
+
+function langSwitcherHtml(currentLangCode, buildHref) {
   const items = LANGS.map((l) => {
     const active = l.code === currentLangCode ? ' class="active"' : "";
     return `<a href="${buildHref(l.code)}"${active} hreflang="${l.code === "zh-cn" ? "zh-CN" : l.code === "zh-tw" ? "zh-TW" : l.code}">${l.code.toUpperCase()}</a>`;
