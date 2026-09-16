@@ -142,9 +142,11 @@ export default {
         // 최초 스크랩 시점 이미지를 한동안 재사용한다).
         return renderCityOgImage({ city, timeText, dateText, offsetLabel });
       } catch (e) {
-        // OG 이미지 생성 실패 시 정적 폴백 이미지로 리다이렉트 (아래 og-image.png는
-        // 반드시 별도로 준비되어 있어야 함)
-        return Response.redirect(`${origin}/og-image.png`, 302);
+        // OG 이미지 생성 실패 시, 존재하지 않는 정적 파일로 리다이렉트하면
+        // 카카오톡/트위터 등 스크래퍼가 HTML(404) 응답을 받아 미리보기가
+        // 완전히 깨진다. 대신 항상 유효한 PNG를 반환하는 홈 OG 이미지로 폴백한다.
+        console.error("OG image render failed:", key, e);
+        return renderHomeOgImage(t(DEFAULT_LANG, "siteName"), t(DEFAULT_LANG, "tagline"));
       }
     }
 

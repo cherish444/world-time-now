@@ -1,5 +1,4 @@
 import { ImageResponse } from "workers-og";
-import { countryFlag } from "./cities.js";
 
 function esc(str = "") {
   return String(str)
@@ -23,9 +22,15 @@ export function renderCityOgImage({ city, timeText, dateText, offsetLabel }) {
       background: linear-gradient(135deg, #111111 0%, #1c1c2e 100%);
       color: #ffffff;
       font-family: sans-serif;
+      position: relative;
     ">
       <div style="display:flex; align-items:center; font-size:56px; margin-bottom: 12px;">
-        <span style="margin-right:20px;">${countryFlag(city.cc)}</span>
+        <span style="
+          display:flex; align-items:center; justify-content:center;
+          width:76px; height:56px; margin-right:20px;
+          background:#2a2a3d; border-radius:10px;
+          font-size:26px; font-weight:700; letter-spacing:1px; color:#ffffff;
+        ">${esc(city.cc)}</span>
         <span style="font-weight:700;">${esc(city.name)}</span>
       </div>
       <div style="font-size:36px; color:#9a9a9a; margin-bottom:36px;">${esc(city.country)}</div>
@@ -48,7 +53,7 @@ export function renderCityOgImage({ city, timeText, dateText, offsetLabel }) {
         font-size:26px;
         color:#5b9dff;
         font-weight:600;
-      ">🕒 World Time Now</div>
+      ">World Time Now</div>
     </div>
   `;
 
@@ -71,8 +76,9 @@ export function renderHomeOgImage(siteName, tagline) {
       background: linear-gradient(135deg, #111111 0%, #1c1c2e 100%);
       color:#ffffff;
       font-family: sans-serif;
+      position: relative;
     ">
-      <div style="display:flex; font-size:80px; font-weight:700; margin-bottom:20px;">🕒 ${esc(siteName)}</div>
+      <div style="display:flex; font-size:80px; font-weight:700; margin-bottom:20px;">${esc(siteName)}</div>
       <div style="display:flex; font-size:34px; color:#9a9a9a;">${esc(tagline)}</div>
     </div>
   `;
