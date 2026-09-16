@@ -110,6 +110,16 @@ export default {
       });
     }
 
+    // 임시 디버그: workers-og 렌더링 엔진 자체가 이 환경에서 동작하는지 확인용.
+    // 정상 동작 확인되면 이 블록은 삭제해도 됩니다.
+    if (pathname === "/og/debug.png") {
+      const { ImageResponse } = await import("workers-og");
+      return new ImageResponse(
+        `<div style="display:flex; width:600px; height:300px; background:#ff0000; color:#ffffff; font-size:40px; align-items:center; justify-content:center;">HELLO</div>`,
+        { width: 600, height: 300 }
+      );
+    }
+
     // 동적 OG 이미지: /og/home.png, /og/{slug}.png
     // 카카오톡/트위터/슬랙 등에서 링크 미리보기로 요청하는 경로.
     if (pathname.startsWith("/og/") && pathname.endsWith(".png")) {
