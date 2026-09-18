@@ -300,7 +300,7 @@ function baseStyles() {
     /* ── 세계지도 + 아날로그 시계 보드 (즐겨찾기 도시) ── */
     .wc-board{ margin:0 0 20px; }
     .wc-map{
-      position:relative; width:100%; aspect-ratio:2/1; border-radius:16px; overflow:hidden;
+      position:relative; width:100%; aspect-ratio:784.077/458.627; border-radius:16px; overflow:hidden;
       margin-bottom:16px; border:1px solid var(--line);
       background:
         radial-gradient(ellipse at 28% 22%, rgba(255,255,255,.07), transparent 55%),
@@ -310,6 +310,8 @@ function baseStyles() {
     }
     .wc-map-pins{ position:absolute; inset:0; }
     .wc-night-overlay{ position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+    .wc-dateline{ position:absolute; top:0; bottom:0; width:0; border-left:1px dashed rgba(255,255,255,.4); pointer-events:none; }
+    .wc-dateline-label{ position:absolute; top:4px; font-size:8.5px; color:rgba(255,255,255,.55); white-space:nowrap; transform:translateX(-100%) rotate(0deg); padding-right:4px; letter-spacing:.02em; }
     .wc-world-svg{ position:absolute; inset:0; width:100%; height:100%; opacity:.9; }
     .wc-world-svg path{ fill:#1c3a5e; stroke:#0a1830; stroke-width:.6; }
     .wc-map-credit{ position:absolute; right:8px; bottom:6px; font-size:9.5px; color:rgba(255,255,255,.35); text-decoration:none; }
@@ -977,6 +979,12 @@ export function renderHomePage(langCode, origin, gaId, visitorTz) {
   const title = t(langCode, "siteName");
   const description = t(langCode, "homeDescription");
 
+  // 세계지도 위 국제 날짜변경선(±180°) 위치를 퍼센트로 미리 계산해둔다.
+  // 지도 크롭이 거의 날짜변경선에 맞춰져 있어서 0~100% 살짝 밖으로 나가므로 clamp.
+  const dateLineSvgX = WORLD_MAP_PROJECTION.a * 180 + WORLD_MAP_PROJECTION.b;
+  const dateLinePctRaw = ((dateLineSvgX - WORLD_MAP_VIEWBOX.x) / WORLD_MAP_VIEWBOX.width) * 100;
+  const dateLinePct = Math.max(0.3, Math.min(99.7, dateLinePctRaw)).toFixed(2);
+
   const regionsOrder = ["americas", "europe", "africa_me", "asia", "oceania"];
   const blocks = regionsOrder
     .map((regionKey) => {
@@ -1035,6 +1043,8 @@ ${socialMetaHtml({ langCode, title, description, url, origin, imagePath: "/og/ho
         <defs><filter id="wcNightBlur" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.4"/></filter></defs>
         <path id="wc-night-path" d="" fill="rgba(2,6,16,.5)" filter="url(#wcNightBlur)"/>
       </svg>
+      <div class="wc-dateline" style="left:${dateLinePct}%;"></div>
+      <div class="wc-dateline-label" style="left:${dateLinePct}%;">${escapeHtml(t(langCode, "dateLineLabel"))}</div>
       <div class="wc-map-pins" id="wc-map-pins"></div>
       <a class="wc-map-credit" href="https://github.com/flekschas/simple-world-map" target="_blank" rel="noopener noreferrer nofollow">Map: A. MacDonald / F. Lekschas, CC BY-SA 3.0</a>
     </div>
