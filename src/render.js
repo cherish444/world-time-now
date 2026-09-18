@@ -309,6 +309,7 @@ function baseStyles() {
         linear-gradient(160deg,#0c1830,#050a16);
     }
     .wc-map-pins{ position:absolute; inset:0; }
+    .wc-night-overlay{ position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
     .wc-world-svg{ position:absolute; inset:0; width:100%; height:100%; opacity:.9; }
     .wc-world-svg path{ fill:#1c3a5e; stroke:#0a1830; stroke-width:.6; }
     .wc-map-credit{ position:absolute; right:8px; bottom:6px; font-size:9.5px; color:rgba(255,255,255,.35); text-decoration:none; }
@@ -766,6 +767,61 @@ function worldBoardScript(langCode) {
 
   function getFavs(){ try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch(e){ return []; } }
 
+  // 위경도 → 지도 패널 위 퍼센트 좌표. 가장자리(피지 등 날짜변경선 부근)가
+  // 패널 밖으로 튀어나가지 않도록 살짝 여백을 두고 clamp 한다.
+  function project(lng, lat){
+    var svgX = PROJ.a * lng + PROJ.b;
+    var svgY = PROJ.c * lat + PROJ.d;
+    var left = ((svgX - VB.x) / VB.width) * 100;
+    var top = ((svgY - VB.y) / VB.height) * 100;
+    left = Math.max(1.5, Math.min(98.5, left));
+    top = Math.max(2, Math.min(98, top));
+    return { left: left, top: top };
+  }
+
+  // ---- 밤/낮 터미네이터 ----
+  // 태양이 지금 어느 경도 위에(직하점) 떠 있는지, 적위(declination)가 몇 도인지
+  // 근사식으로 구해서, 경도별 명암 경계 위도를 계산해 야간 영역 폴리곤을 그린다.
+  // (정밀한 항해력 수준은 아니고, 시각적으로 자연스러운 정도의 근사치)
+  function subsolarPoint(date){
+    var start = Date.UTC(date.getUTCFullYear(), 0, 1);
+    var dayOfYear = Math.floor((date.getTime() - start) / 86400000) + 1;
+    var decl = -23.44 * Math.cos((2 * Math.PI / 365.25) * (dayOfYear + 10));
+    var utcHours = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;
+    var lngSun = -(utcHours - 12) * 15;
+    lngSun = ((lngSun + 540) % 360) - 180;
+    return { decl: decl, lngSun: lngSun };
+  }
+
+  function terminatorLat(lng, declRad, lngSun){
+    var H = (lng - lngSun) * Math.PI / 180;
+    var tanDecl = Math.tan(declRad);
+    if (Math.abs(tanDecl) < 1e-6) return Math.cos(H) >= 0 ? -89.9 : 89.9;
+    var lat = Math.atan(-Math.cos(H) / tanDecl) * 180 / Math.PI;
+    return lat;
+  }
+
+  function updateNightOverlay(now){
+    var pathEl = document.getElementById('wc-night-path');
+    if (!pathEl) return;
+    var sp = subsolarPoint(now);
+    var declRad = sp.decl * Math.PI / 180;
+    var nightIsNorth = sp.decl < 0; // 태양 적위가 남쪽이면(겨울철) 북반구 쪽이 밤
+    var poleLat = nightIsNorth ? 90 : -90;
+
+    var pts = [];
+    var step = 4;
+    for (var lng = -180; lng <= 180; lng += step) {
+      var lat = terminatorLat(lng, declRad, sp.lngSun);
+      var pr = project(lng, lat);
+      pts.push(pr.left.toFixed(2) + ',' + pr.top.toFixed(2));
+    }
+    var poleY = nightIsNorth ? 0 : 100;
+    var d = 'M ' + pts.join(' L ');
+    d += ' L 100,' + poleY + ' L 0,' + poleY + ' Z';
+    pathEl.setAttribute('d', d);
+  }
+
   function offsetMinutes(tz, date){
     var parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle:'h23',
       year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' }).formatToParts(date);
@@ -798,10 +854,8 @@ function worldBoardScript(langCode) {
     // ---- 지도 핀 ----
     pinsEl.innerHTML = '';
     list.forEach(function(c){
-      var svgX = PROJ.a * c.lng + PROJ.b;
-      var svgY = PROJ.c * c.lat + PROJ.d;
-      var left = ((svgX - VB.x) / VB.width) * 100;
-      var top = ((svgY - VB.y) / VB.height) * 100;
+      var pr = project(c.lng, c.lat);
+      var left = pr.left, top = pr.top;
       var pin = document.createElement('div');
       pin.className = 'wc-pin';
       pin.style.left = left + '%';
@@ -860,6 +914,7 @@ function worldBoardScript(langCode) {
     if (!built) return;
     var now = new Date();
     var localOffset = -now.getTimezoneOffset();
+    updateNightOverlay(now);
 
     Array.prototype.forEach.call(pinsEl.querySelectorAll('.wc-pin'), function(pin){
       var city = findCity(pin.getAttribute('data-slug'));
@@ -976,6 +1031,10 @@ ${socialMetaHtml({ langCode, title, description, url, origin, imagePath: "/og/ho
   <div class="wc-board" id="wc-board" style="display:none;">
     <div class="wc-map" id="wc-map">
       ${WORLD_MAP_SVG}
+      <svg class="wc-night-overlay" id="wc-night-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <defs><filter id="wcNightBlur" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.4"/></filter></defs>
+        <path id="wc-night-path" d="" fill="rgba(2,6,16,.5)" filter="url(#wcNightBlur)"/>
+      </svg>
       <div class="wc-map-pins" id="wc-map-pins"></div>
       <a class="wc-map-credit" href="https://github.com/flekschas/simple-world-map" target="_blank" rel="noopener noreferrer nofollow">Map: A. MacDonald / F. Lekschas, CC BY-SA 3.0</a>
     </div>
