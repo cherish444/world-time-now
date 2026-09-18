@@ -4,6 +4,7 @@ import { getSunTimes } from "./solar.js";
 import { getHolidaysForCountry, mergeHolidays } from "./holidays.js";
 import { getKoreaHolidays } from "./korea-holidays.js";
 import { weatherCodeLabel } from "./enrichment.js";
+import { WORLD_MAP_SVG, WORLD_MAP_VIEWBOX, WORLD_MAP_PROJECTION } from "./world-map-svg.js";
 
 const HUB_SLUGS = ["new-york", "london", "tokyo", "dubai", "sydney"];
 
@@ -294,6 +295,50 @@ function baseStyles() {
     @media (max-width: 380px){
       .clock-hero .clock{ font-size:32px; }
       .fact-grid{ grid-template-columns:1fr 1fr; }
+    }
+
+    /* ── 세계지도 + 아날로그 시계 보드 (즐겨찾기 도시) ── */
+    .wc-board{ margin:0 0 20px; }
+    .wc-map{
+      position:relative; width:100%; aspect-ratio:2/1; border-radius:16px; overflow:hidden;
+      margin-bottom:16px; border:1px solid var(--line);
+      background:
+        radial-gradient(ellipse at 28% 22%, rgba(255,255,255,.07), transparent 55%),
+        repeating-linear-gradient(0deg, rgba(255,255,255,.06) 0 1px, transparent 1px calc(100%/8)),
+        repeating-linear-gradient(90deg, rgba(255,255,255,.06) 0 1px, transparent 1px calc(100%/12)),
+        linear-gradient(160deg,#0c1830,#050a16);
+    }
+    .wc-map-pins{ position:absolute; inset:0; }
+    .wc-world-svg{ position:absolute; inset:0; width:100%; height:100%; opacity:.9; }
+    .wc-world-svg path{ fill:#1c3a5e; stroke:#0a1830; stroke-width:.6; }
+    .wc-map-credit{ position:absolute; right:8px; bottom:6px; font-size:9.5px; color:rgba(255,255,255,.35); text-decoration:none; }
+    .wc-map-credit:hover{ color:rgba(255,255,255,.6); }
+    .wc-pin{ position:absolute; transform:translate(-50%,-100%); display:flex; flex-direction:column; align-items:center; }
+    .wc-pin-city{ font-size:9px; color:#8fb6da; font-weight:600; text-transform:uppercase; letter-spacing:.04em; margin-bottom:3px; white-space:nowrap; }
+    .wc-pin-bubble{ background:rgba(8,16,32,.92); color:#eaf4ff; font-size:11px; font-weight:600; padding:3px 8px; border-radius:8px; white-space:nowrap; border:1px solid rgba(255,255,255,.14); font-family:'SFMono-Regular',Consolas,monospace; margin-bottom:3px; }
+    .wc-pin-dot{ width:8px; height:8px; border-radius:50%; background:#5ec8ff; position:relative; box-shadow:0 0 0 3px rgba(94,200,255,.22); }
+    .wc-pin-dot::after{ content:''; position:absolute; inset:-6px; border-radius:50%; border:1px solid rgba(94,200,255,.45); animation:wcPulse 2.6s ease-out infinite; }
+    .wc-pin.wc-pin-night .wc-pin-dot{ background:#ffb454; box-shadow:0 0 0 3px rgba(255,180,84,.22); }
+    .wc-pin.wc-pin-night .wc-pin-dot::after{ border-color:rgba(255,180,84,.45); }
+    @keyframes wcPulse{ 0%{ transform:scale(.5); opacity:.9; } 100%{ transform:scale(2.1); opacity:0; } }
+
+    .wc-analog-row{ display:flex; flex-wrap:wrap; gap:14px; }
+    .wc-analog-card{ display:flex; flex-direction:column; align-items:center; width:92px; text-align:center; }
+    .wc-analog-face{ width:70px; height:70px; margin-bottom:8px; }
+    .wc-face-bg{ fill:var(--card-bg); stroke:var(--line); stroke-width:2.5; }
+    .wc-tick-major{ stroke:var(--sub); stroke-width:2.2; stroke-linecap:round; }
+    .wc-tick-minor{ stroke:var(--line); stroke-width:1.2; stroke-linecap:round; }
+    .wc-hand{ stroke-linecap:round; }
+    .wc-hand-hour{ stroke:var(--ink); stroke-width:4.5; }
+    .wc-hand-min{ stroke:var(--ink); stroke-width:3; }
+    .wc-hand-sec{ stroke:var(--accent); stroke-width:1.4; }
+    .wc-hand-pivot{ fill:var(--accent); }
+    .wc-analog-city{ font-size:12.5px; font-weight:600; }
+    .wc-analog-time{ font-family:'SFMono-Regular',Consolas,monospace; font-size:12px; color:var(--sub); margin-top:1px; }
+    .wc-analog-diff{ font-size:10.5px; color:var(--accent); margin-top:1px; }
+    @media (max-width:600px){
+      .wc-analog-card{ width:76px; }
+      .wc-analog-face{ width:58px; height:58px; }
     }
   `;
 }
@@ -690,6 +735,185 @@ function favoritesScript() {
 </script>`;
 }
 
+// 즐겨찾기 도시들을 세계지도 핀 + 아날로그 시계 카드로 그려주는 보드.
+// favoritesScript()가 관리하는 localStorage 'wc-favorites' 값을 그대로 읽어서 쓴다.
+// 실제 위성지도 이미지는 쓰지 않고(외부 의존성/깨짐 리스크 회피) CSS 그리드 배경 +
+// 위경도 기반 퍼센트 좌표(equirectangular)로 핀을 배치한다.
+function worldBoardScript(langCode) {
+  const labelAhead = t(langCode, "hoursAhead");
+  const labelBehind = t(langCode, "hoursBehind");
+  const labelSame = t(langCode, "sameTime");
+  const citiesJson = JSON.stringify(
+    CITIES.map((c) => ({ slug: c.slug, name: c.name, tz: c.tz, lat: c.lat, lng: c.lng }))
+  );
+
+  return `<script>
+(function(){
+  var KEY = 'wc-favorites';
+  var MAX_SHOW = 10;
+  var CITIES = ${citiesJson};
+  var PROJ = ${JSON.stringify(WORLD_MAP_PROJECTION)};
+  var VB = ${JSON.stringify(WORLD_MAP_VIEWBOX)};
+  var boardEl = document.getElementById('wc-board');
+  var pinsEl = document.getElementById('wc-map-pins');
+  var rowEl = document.getElementById('wc-analog-row');
+  if (!boardEl || !pinsEl || !rowEl) return;
+
+  var locale = document.documentElement.getAttribute('data-locale') || 'en-US';
+  var labelAhead = ${JSON.stringify(labelAhead)};
+  var labelBehind = ${JSON.stringify(labelBehind)};
+  var labelSame = ${JSON.stringify(labelSame)};
+
+  function getFavs(){ try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch(e){ return []; } }
+
+  function offsetMinutes(tz, date){
+    var parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle:'h23',
+      year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' }).formatToParts(date);
+    var o = {}; parts.forEach(function(p){ o[p.type] = p.value; });
+    var asUTC = Date.UTC(o.year, o.month - 1, o.day, o.hour === '24' ? 0 : o.hour, o.minute, o.second);
+    return Math.round((asUTC - date.getTime()) / 60000);
+  }
+
+  var currentCities = [];
+  var built = false;
+
+  function findCity(slug){
+    for (var i = 0; i < CITIES.length; i++) { if (CITIES[i].slug === slug) return CITIES[i]; }
+    return null;
+  }
+
+  function build(){
+    var favs = getFavs().slice(0, MAX_SHOW);
+    var list = favs.map(findCity).filter(Boolean);
+
+    if (!list.length) {
+      boardEl.style.display = 'none';
+      currentCities = [];
+      built = false;
+      return;
+    }
+    boardEl.style.display = '';
+    currentCities = list;
+
+    // ---- 지도 핀 ----
+    pinsEl.innerHTML = '';
+    list.forEach(function(c){
+      var svgX = PROJ.a * c.lng + PROJ.b;
+      var svgY = PROJ.c * c.lat + PROJ.d;
+      var left = ((svgX - VB.x) / VB.width) * 100;
+      var top = ((svgY - VB.y) / VB.height) * 100;
+      var pin = document.createElement('div');
+      pin.className = 'wc-pin';
+      pin.style.left = left + '%';
+      pin.style.top = top + '%';
+      pin.setAttribute('data-slug', c.slug);
+
+      var cityLbl = document.createElement('div');
+      cityLbl.className = 'wc-pin-city';
+      cityLbl.textContent = c.name;
+
+      var bubble = document.createElement('div');
+      bubble.className = 'wc-pin-bubble';
+      bubble.textContent = '--:--';
+
+      var dot = document.createElement('div');
+      dot.className = 'wc-pin-dot';
+
+      pin.appendChild(cityLbl);
+      pin.appendChild(bubble);
+      pin.appendChild(dot);
+      pinsEl.appendChild(pin);
+    });
+
+    // ---- 아날로그 시계 카드 ----
+    rowEl.innerHTML = '';
+    list.forEach(function(c){
+      var card = document.createElement('div');
+      card.className = 'wc-analog-card';
+      card.setAttribute('data-slug', c.slug);
+
+      var ticks = '';
+      for (var i = 0; i < 12; i++) {
+        var major = (i % 3 === 0);
+        ticks += '<line x1="50" y1="6" x2="50" y2="' + (major ? 13 : 10) + '" class="' +
+          (major ? 'wc-tick-major' : 'wc-tick-minor') + '" transform="rotate(' + (i * 30) + ' 50 50)"/>';
+      }
+      card.innerHTML =
+        '<svg viewBox="0 0 100 100" class="wc-analog-face">' +
+          '<circle cx="50" cy="50" r="47" class="wc-face-bg"/>' +
+          ticks +
+          '<line x1="50" y1="50" x2="50" y2="30" class="wc-hand wc-hand-hour"/>' +
+          '<line x1="50" y1="50" x2="50" y2="18" class="wc-hand wc-hand-min"/>' +
+          '<line x1="50" y1="55" x2="50" y2="14" class="wc-hand wc-hand-sec"/>' +
+          '<circle cx="50" cy="50" r="2.8" class="wc-hand-pivot"/>' +
+        '</svg>' +
+        '<div class="wc-analog-city"></div>' +
+        '<div class="wc-analog-time">--:--</div>' +
+        '<div class="wc-analog-diff">—</div>';
+      card.querySelector('.wc-analog-city').textContent = c.name;
+      rowEl.appendChild(card);
+    });
+    built = true;
+  }
+
+  function tick(){
+    if (!built) return;
+    var now = new Date();
+    var localOffset = -now.getTimezoneOffset();
+
+    Array.prototype.forEach.call(pinsEl.querySelectorAll('.wc-pin'), function(pin){
+      var city = findCity(pin.getAttribute('data-slug'));
+      if (!city) return;
+      var hourNum = Number(new Intl.DateTimeFormat('en-US', { timeZone: city.tz, hour:'2-digit', hour12:false }).format(now));
+      var isNight = hourNum < 6 || hourNum >= 19;
+      pin.classList.toggle('wc-pin-night', isNight);
+      var bubble = pin.querySelector('.wc-pin-bubble');
+      if (bubble) bubble.textContent = new Intl.DateTimeFormat(locale, { timeZone: city.tz, hour:'2-digit', minute:'2-digit', hour12:false }).format(now);
+    });
+
+    Array.prototype.forEach.call(rowEl.querySelectorAll('.wc-analog-card'), function(card){
+      var city = findCity(card.getAttribute('data-slug'));
+      if (!city) return;
+      var parts = new Intl.DateTimeFormat('en-US', { timeZone: city.tz, hourCycle:'h23', hour:'2-digit', minute:'2-digit', second:'2-digit' }).formatToParts(now);
+      var o = {}; parts.forEach(function(p){ o[p.type] = p.value; });
+      var h = Number(o.hour) % 24, m = Number(o.minute), s = Number(o.second);
+      var hourDeg = (h % 12) * 30 + m * 0.5;
+      var minDeg = m * 6 + s * 0.1;
+      var secDeg = s * 6;
+
+      var hourHand = card.querySelector('.wc-hand-hour');
+      var minHand = card.querySelector('.wc-hand-min');
+      var secHand = card.querySelector('.wc-hand-sec');
+      if (hourHand) hourHand.setAttribute('transform', 'rotate(' + hourDeg + ' 50 50)');
+      if (minHand) minHand.setAttribute('transform', 'rotate(' + minDeg + ' 50 50)');
+      if (secHand) secHand.setAttribute('transform', 'rotate(' + secDeg + ' 50 50)');
+
+      var timeEl = card.querySelector('.wc-analog-time');
+      if (timeEl) timeEl.textContent = new Intl.DateTimeFormat(locale, { timeZone: city.tz, hour:'2-digit', minute:'2-digit', hour12:false }).format(now);
+
+      var diffEl = card.querySelector('.wc-analog-diff');
+      if (diffEl) {
+        var cityOffset = offsetMinutes(city.tz, now);
+        var diffH = Math.round((cityOffset - localOffset) / 60);
+        diffEl.textContent = diffH === 0 ? labelSame
+          : (diffH > 0 ? labelAhead.replace('{n}', diffH) : labelBehind.replace('{n}', Math.abs(diffH)));
+      }
+    });
+  }
+
+  // 즐겨찾기 별 클릭 시 favoritesScript()가 localStorage를 먼저 갱신한 뒤
+  // (이 스크립트가 뒤에 로드되므로 같은 클릭 이벤트 내에서 순서 보장됨) 재빌드.
+  document.addEventListener('click', function(e){
+    if (e.target.closest('.fav-star')) { build(); tick(); }
+  });
+
+  build();
+  tick();
+  setInterval(tick, 1000);
+})();
+</script>`;
+}
+
 // ---- 홈 페이지 ----
 export function renderHomePage(langCode, origin, gaId, visitorTz) {
   const lang = LANGS.find((l) => l.code === langCode) || LANGS[0];
@@ -749,12 +973,21 @@ ${socialMetaHtml({ langCode, title, description, url, origin, imagePath: "/og/ho
 
   <div class="section-title" style="margin-top:0;">${escapeHtml(t(langCode, "favoritesTitle"))}</div>
   <p id="favorites-empty" style="color:var(--sub); font-size:13.5px; margin:0 0 12px;">${escapeHtml(t(langCode, "noFavorites"))}</p>
+  <div class="wc-board" id="wc-board" style="display:none;">
+    <div class="wc-map" id="wc-map">
+      ${WORLD_MAP_SVG}
+      <div class="wc-map-pins" id="wc-map-pins"></div>
+      <a class="wc-map-credit" href="https://github.com/flekschas/simple-world-map" target="_blank" rel="noopener noreferrer nofollow">Map: A. MacDonald / F. Lekschas, CC BY-SA 3.0</a>
+    </div>
+    <div class="wc-analog-row" id="wc-analog-row"></div>
+  </div>
   <div class="city-grid" id="favorites-body" style="margin-bottom:8px;"></div>
 
   ${blocks}
   <footer class="foot">${escapeHtml(t(langCode, "footerText"))}</footer>
   ${miniClockScript()}
   ${favoritesScript()}
+  ${worldBoardScript(langCode)}
   ${themeSwitchScript()}
   ${clockToolbarScript()}
   <script>
